@@ -1,0 +1,19 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pve-tls
+  namespace: cert-manager
+spec:
+  secretName: pve-tls
+  issuerRef:
+    name: homelab-ca
+    kind: ClusterIssuer
+  commonName: pve.homelab.local
+  dnsNames:
+  - pve.homelab.local
+  - quescom.homelab.local
+  ipAddresses:
+  - 172.16.0.11
+  privateKey:
+    algorithm: RSA
+    size: 2048

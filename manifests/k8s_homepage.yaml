@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+  namespace: lab
+data:
+  settings.yaml: |
+    title: Homelab (k8s)
+    theme: dark
+    color: slate
+  widgets.yaml: |
+    - resources:
+        cpu: true
+        memory: true
+        uptime: true
+    - search:
+        provider: duckduckgo
+  services.yaml: |
+    - Kubernetes:
+        - ArgoCD:
+            icon: argocd.svg
+            href: https://argocd.homelab.local
+            description: GitOps
+        - Grafana:
+            icon: grafana.svg
+            href: https://grafana.homelab.local
+            description: Dashboards
+        - Prometheus:
+            icon: prometheus.svg
+            href: https://prometheus.homelab.local
+            description: Metrics
+    - Classic (outside cluster):
+        - Pi-hole:
+            icon: pi-hole.svg
+            href: http://172.16.0.10/admin
+        - Wazuh:
+            icon: wazuh.svg
+            href: https://172.16.0.227
+        - Beszel:
+            icon: beszel.svg
+            href: http://172.16.0.133:8090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  namespace: lab
+  labels:
+    app: homepage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: homepage
+  template:
+    metadata:
+      labels:
+        app: homepage
+    spec:
+      initContainers:
+      - name: seed-config
+        image: busybox:1.36
+        command: ["sh", "-c", "cp -v /config-src/*.yaml /app/config/ || true"]
+        volumeMounts:
+        - name: config-src
+          mountPath: /config-src
+        - name: config
+          mountPath: /app/config
+      containers:
+      - name: homepage
+        image: ghcr.io/gethomepage/homepage:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: HOMEPAGE_ALLOWED_HOSTS
+          value: "home.homelab.local"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+        readinessProbe:
+          tcpSocket:
+            port: 3000
+          initialDelaySeconds: 10
+      volumes:
+      - name: config-src
+        configMap:
+          name: homepage-config
+      - name: config
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: homepage
+  namespace: lab
+spec:
+  selector:
+    app: homepage
+  ports:
+  - port: 80
+    targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage
+  namespace: lab
+  annotations:
+    cert-manager.io/cluster-issuer: homelab-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+  - hosts: [home.homelab.local]
+    secretName: home-tls
+  rules:
+  - host: home.homelab.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: homepage
+            port:
+              number: 80
